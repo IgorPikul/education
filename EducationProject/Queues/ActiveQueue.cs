@@ -12,30 +12,24 @@ namespace EducationProject.Queues
         private readonly Queue<T> queue;
         private readonly object syncObject = new object();
         private readonly int capacity;
+        private volatile bool threadRunning;
 
         public ActiveQueue(int capacity, int workersCount)
         {
             this.capacity = capacity;
+            queue = new Queue<T>(capacity);
+
             for (int i = 0; i < workersCount; i++)
                 ThreadPool.QueueUserWorkItem(ThreadFn);
 
-            queue = new Queue<T>(capacity);
-        }
-        ~ActiveQueue()
-        {
-            Dispose(false);
+            threadRunning = true;
         }
 
         public void Dispose()
         {
-            Dispose(true);
-            GC.SuppressFinalize(this);
+            threadRunning = false;
         }
-
-        private void Dispose(bool disposing)
-        {
-        }
-        
+       
         public event Action<T> ProcessMessage;
         private void FireProcessMessage(T message)
         {
@@ -46,6 +40,9 @@ namespace EducationProject.Queues
 
         public void Enqueue(T item)
         {
+            if (!threadRunning)
+                return;
+
             lock (syncObject)
             {
                 while (queue.Count == capacity)
@@ -61,7 +58,7 @@ namespace EducationProject.Queues
    
         private void ThreadFn(object obj)
         {
-            while (true)
+            while (threadRunning)
             {
                 T item = default(T);
                 lock (syncObject)
