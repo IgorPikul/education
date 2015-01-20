@@ -20,6 +20,12 @@ namespace EducationProject.Queues
             blockingCollection = new BlockingCollection<T>(new ConcurrentQueue<T>(), capacity);
         }
 
+        public void Dispose()
+        {
+            if (blockingCollection != null)
+                blockingCollection.Dispose();
+        }
+
         public event Action<T> ProcessMessage;
         private void FireProcessMessage(T message)
         {
