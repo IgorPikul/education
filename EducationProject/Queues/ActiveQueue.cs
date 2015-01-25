@@ -12,22 +12,29 @@ namespace EducationProject.Queues
         private readonly Queue<T> queue;
         private readonly object syncObject = new object();
         private readonly int capacity;
-        private volatile bool threadRunning;
+
+        private readonly Thread[] threads;
+        private ManualResetEvent terminateEvent = new ManualResetEvent(false);
 
         public ActiveQueue(int capacity, int workersCount)
         {
             this.capacity = capacity;
             queue = new Queue<T>(capacity);
 
+            threads = new Thread[workersCount];
             for (int i = 0; i < workersCount; i++)
-                ThreadPool.QueueUserWorkItem(ThreadFn);
-
-            threadRunning = true;
+            {
+                threads[i] = new Thread(ThreadFn);
+                threads[i].IsBackground = true;
+                threads[i].Start();
+            }
         }
 
         public void Dispose()
         {
-            threadRunning = false;
+            terminateEvent.Set();
+            lock (syncObject)
+                Monitor.PulseAll(syncObject);
         }
        
         public event Action<T> ProcessMessage;
@@ -40,14 +47,10 @@ namespace EducationProject.Queues
 
         public void Enqueue(T item)
         {
-            if (!threadRunning)
-                return;
-
             lock (syncObject)
             {
                 while (queue.Count == capacity)
                     Monitor.Wait(syncObject);
-
                 if (queue.Count == 0)
                     Monitor.Pulse(syncObject);
 
@@ -58,24 +61,28 @@ namespace EducationProject.Queues
    
         private void ThreadFn(object obj)
         {
-            while (threadRunning)
+            while (true)
             {
+                if (terminateEvent.WaitOne(0))
+                    return;
+
                 T item = default(T);
                 lock (syncObject)
                 {
                     while (queue.Count == 0)
+                    {
                         Monitor.Wait(syncObject);
+                        if (terminateEvent.WaitOne(0))
+                            return;
+                    }
 
                     if (queue.Count == capacity)
                         Monitor.Pulse(syncObject);
 
                     item = queue.Dequeue();
                 }
-
-                if (item != null)
-                    FireProcessMessage(item);
+                FireProcessMessage(item);
             }
         }
-      
     }
 }
